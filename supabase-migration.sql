@@ -298,32 +298,45 @@ $$ language plpgsql security definer;
 -- Workspace-scoped RLS
 do $$
 declare
-  tables_with_workspace text[] := array[
-    'espacios_de_trabajo', 'visiones', 'misiones', 'principios',
-    'ambitos', 'roles', 'objetivos', 'metas', 'tareas',
-    'planes_semanales', 'items_plan_semanal', 'habitos', 'notas'
-  ];
   t text;
 begin
-  foreach t in array tables_with_workspace
+  foreach t in array array[
+    'visiones', 'misiones', 'principios',
+    'ambitos', 'roles', 'objetivos', 'metas', 'tareas',
+    'planes_semanales', 'habitos', 'notas'
+  ]
   loop
-    if t = 'espacios_de_trabajo' then
-      execute format(
-        'create policy "Propietario puede gestionar sus espacios"
-         on public.%I for all
-         using (usuario_id = auth.uid())
-         with check (usuario_id = auth.uid())',
-        t
-      );
-    else
-      execute format(
-        'create policy "Propietario del workspace puede gestionar"
-         on public.%I for all
-         using (public.user_owns_workspace(espacio_trabajo_id))
-         with check (public.user_owns_workspace(espacio_trabajo_id))',
-        t
-      );
-    end if;
+    execute format(
+      'create policy "Propietario del workspace puede gestionar"
+       on public.%I for all
+       using (public.user_owns_workspace(espacio_trabajo_id))
+       with check (public.user_owns_workspace(espacio_trabajo_id))',
+      t
+    );
   end loop;
 end;
 $$;
+
+-- items_plan_semanal needs a join through planes_semanales
+create policy "Propietario del workspace puede gestionar items de plan"
+  on public.items_plan_semanal for all
+  using (
+    exists (
+      select 1 from public.planes_semanales ps
+      where ps.id = items_plan_semanal.plan_semanal_id
+        and public.user_owns_workspace(ps.espacio_trabajo_id)
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.planes_semanales ps
+      where ps.id = items_plan_semanal.plan_semanal_id
+        and public.user_owns_workspace(ps.espacio_trabajo_id)
+    )
+  );
+
+-- espacios_de_trabajo uses usuario_id directly
+create policy "Propietario puede gestionar sus espacios"
+  on public.espacios_de_trabajo for all
+  using (usuario_id = auth.uid())
+  with check (usuario_id = auth.uid());
